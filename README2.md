@@ -1,1 +1,0 @@
-python run_mcp_client.py mcp_server\memory\index.ts
