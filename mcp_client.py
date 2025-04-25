@@ -73,33 +73,66 @@ class MemoryChatbot:
         final = []
         for chunk in claude_resp.content:
             if chunk.type == "text":
-                print("=========== chunk.text ===========")
-                print(chunk.text)
                 final.append(chunk.text)
+
             elif chunk.type == "tool_use":
-                session = self.tool_map.get(chunk.name)
-                if not session:
-                    final.append(f"[error: unknown tool {chunk.name}]")
-                    continue
+                print("======chunk.text & content_str======")
+                print(chunk)
+                session = self.tool_map[chunk.name]
                 result = await session.call_tool(chunk.name, chunk.input)
-                print("=========== result.content ===========")
-                print(result.content)
-                final.append(result.content)
-                # feed result back
-                follow = self.anthropic.messages.create(
-                    model="claude-3-7-sonnet-latest",
-                    max_tokens=1000,
-                    messages=[
-                        {"role":"assistant", "content": chunk.text},
-                        {"role":"user", "content":[
-                            {"type":"tool_result", "tool_use_id":chunk.id, "content":result.content}
-                        ]}
-                    ],
-                    tools=self.tool_defs
-                )
-                for fchunk in follow.content:
-                    if fchunk.type=="text":
+
+                # === extract a plain string ===
+                if isinstance(result.content, str):
+                    content_str = result.content
+                elif hasattr(result.content, "text"):
+                    content_str = result.content.text
+                else:
+                    content_str = str(result.content)
+
+                print(f"content_str {content_str}")
+
+                # 1) show locally
+                final.append(f"[{chunk.name} → {content_str}]")
+
+                # 2) feed back just the tool_result
+                follow_up = self.anthropic.messages.create(
+                model="claude-3-7-sonnet-latest",
+                max_tokens=1000,
+                messages=[
+                    # Re-send the tool invocation as an assistant message
+                    {
+                        "role": "assistant",
+                        "content": [
+                            {
+                                "type": "tool_use",
+                                "name": chunk.name,
+                                "id": chunk.id,
+                                "input": chunk.input
+                            }
+                        ]
+                    },
+                    # Then send the result as a user message
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": chunk.id,
+                                "content": content_str
+                            }
+                        ]
+                    }
+                ],
+                tools=self.tool_defs
+            )
+
+
+                # 3) collect any new text Claude emits
+                for fchunk in follow_up.content:
+                    if fchunk.type == "text":
                         final.append(fchunk.text)
+
+
         return "\n".join(final).strip()
 
     async def chat_loop(self):
@@ -135,3 +168,5 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
+# remember me, im the user, Rayza Mahendra im 180cm tall
